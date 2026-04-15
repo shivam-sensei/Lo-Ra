@@ -10,13 +10,12 @@
 #define N 16
 #define L 3
 
-#define MSG_TAU 0x01
+#define MSG_TAU       0x01
 #define MSG_SYNC_DONE 0x02
-#define MSG_DATA 0x03
+#define MSG_DATA      0x03
 
 #define MAX_ROUNDS 2000
-enum Mode
-{
+enum Mode {
   SYNC_MODE,
   SECURE_MODE
 };
@@ -35,33 +34,37 @@ int8_t X[K][N];
 uint16_t round_id = 0;
 int match_counter = 0;
 unsigned long start_time = 0;
+uint8_t sharedKey[32];
 
-int8_t sign(int v)
-{
-  if (v >= 0)
-    return 1;
+int8_t sign(int v) {
+  if (v >= 0) return 1;
   return -1;
 }
 
-void initTPM(TPM *tpm)
-{
-  for (int i = 0; i < K; i++)
-  {
-    for (int j = 0; j < N; j++)
-    {
+void initTPM(TPM *tpm) {
+  for (int i = 0; i < K; i++) {
+    for (int j = 0; j < N; j++) {
       tpm->w[i][j] = random(-L, L + 1);
     }
   }
 }
 
-void generateInput(uint16_t round)
+void deriveKey(TPM *tpm)
 {
+    mbedtls_sha256((uint8_t*)tpm->w, sizeof(tpm->w), sharedKey, 0);
+
+    Serial.print("KEY: ");
+    for(int i=0;i<32;i++)
+        Serial.printf("%02X", sharedKey[i]);
+
+    Serial.println();
+}
+
+void generateInput(uint16_t round) {
   randomSeed(round);
 
-  for (int i = 0; i < K; i++)
-  {
-    for (int j = 0; j < N; j++)
-    {
+  for (int i = 0; i < K; i++) {
+    for (int j = 0; j < N; j++) {
       if (random(0, 2) == 0)
         X[i][j] = -1;
       else
@@ -70,10 +73,8 @@ void generateInput(uint16_t round)
   }
 }
 
-int8_t computeTPM(TPM *tpm)
-{
-  for (int i = 0; i < K; i++)
-  {
+int8_t computeTPM(TPM *tpm) {
+  for (int i = 0; i < K; i++) {
     int sum = 0;
 
     for (int j = 0; j < N; j++)
@@ -90,29 +91,22 @@ int8_t computeTPM(TPM *tpm)
   return tpm->tau;
 }
 
-void updateWeights(TPM *tpm)
-{
-  for (int i = 0; i < K; i++)
-  {
-    if (tpm->sigma[i] == tpm->tau)
-    {
-      for (int j = 0; j < N; j++)
-      {
+void updateWeights(TPM *tpm) {
+  for (int i = 0; i < K; i++) {
+    if (tpm->sigma[i] == tpm->tau) {
+      for (int j = 0; j < N; j++) {
         tpm->w[i][j] += X[i][j];
 
-        if (tpm->w[i][j] > L)
-          tpm->w[i][j] = L;
-        if (tpm->w[i][j] < -L)
-          tpm->w[i][j] = -L;
+        if (tpm->w[i][j] > L) tpm->w[i][j] = L;
+        if (tpm->w[i][j] < -L) tpm->w[i][j] = -L;
       }
     }
   }
 }
 
-void sendTau(uint16_t round, int8_t tau)
-{
+void sendTau(uint16_t round, int8_t tau) {
   LoRa.beginPacket();
-  LoRa.write(MSG_TAU);
+  LoRa.write(MSG_TAU);  
   LoRa.write((round >> 8) & 0xFF);
   LoRa.write(round & 0xFF);
   LoRa.write((uint8_t)tau);
@@ -120,7 +114,7 @@ void sendTau(uint16_t round, int8_t tau)
 }
 void sendSyncDone()
 {
-  for (int i = 0; i < 5; i++) // repeat for reliability
+  for(int i=0;i<5;i++)   // repeat for reliability
   {
     LoRa.beginPacket();
     LoRa.write(MSG_SYNC_DONE);
@@ -129,15 +123,14 @@ void sendSyncDone()
   }
 }
 
-bool receiveTau(int8_t *type, uint16_t *round, int8_t *tau)
-{
+bool receiveTau(int8_t *type,uint16_t *round, int8_t *tau) {
   int packetSize = LoRa.parsePacket();
-  if (!packetSize)
-    return false;
+  if (!packetSize) return false;
+  
 
-  *type = LoRa.read();
+   *type = LoRa.read();
 
-  if (*type == MSG_TAU)
+  if(*type == MSG_TAU)
   {
     uint8_t r1 = LoRa.read();
     uint8_t r2 = LoRa.read();
@@ -147,18 +140,15 @@ bool receiveTau(int8_t *type, uint16_t *round, int8_t *tau)
 
   return true;
 }
-void printWeights(TPM *tpm)
-{
+void printWeights(TPM *tpm) {
   Serial.println("Final TPM Weights:");
 
-  for (int i = 0; i < K; i++)
-  {
+  for (int i = 0; i < K; i++) {
     Serial.print("Neuron ");
     Serial.print(i);
     Serial.print(": ");
 
-    for (int j = 0; j < N; j++)
-    {
+    for (int j = 0; j < N; j++) {
       Serial.print(tpm->w[i][j]);
       Serial.print(" ");
     }
@@ -168,21 +158,18 @@ void printWeights(TPM *tpm)
 
   Serial.println("------");
 }
-void printKey(TPM *tpm)
-{
+void printKey(TPM *tpm) {
   uint8_t hash[32];
 
   mbedtls_sha256((uint8_t *)tpm->w, sizeof(tpm->w), hash, 0);
 
   Serial.print("KEY: ");
-  for (int i = 0; i < 32; i++)
-  {
+  for (int i = 0; i < 32; i++) {
     Serial.printf("%02x", hash[i]);
   }
   Serial.println();
 }
-void setup()
-{
+void setup() {
   start_time = millis();
   Serial.begin(115200);
 
@@ -190,8 +177,7 @@ void setup()
 
   LoRa.setPins(ss, rst, dio0);
 
-  while (!LoRa.begin(433E6))
-  {
+  while (!LoRa.begin(433E6)) {
     Serial.println("LoRa init failed");
     delay(500);
   }
@@ -204,10 +190,8 @@ void setup()
 
   Serial.println("TPM initialized");
 }
-void sync()
-{
-  if (round_id > MAX_ROUNDS)
-  {
+void sync() {
+  if (round_id > MAX_ROUNDS) {
     Serial.println("Finished");
     while (1)
       ;
@@ -221,16 +205,13 @@ void sync()
 
   unsigned long start = millis();
 
-  while (millis() - start < 2000)
-  {
+  while (millis() - start < 2000) {
     uint16_t r;
     int8_t tau_remote;
     int8_t type;
 
-    if (receiveTau(&type, &r, &tau_remote))
-    {
-      if (r != round_id)
-      {
+    if (receiveTau(&type,&r, &tau_remote)) {
+      if (r != round_id) {
         Serial.println("skipping packet");
         return;
       }
@@ -242,21 +223,18 @@ void sync()
       Serial.print(" remote=");
       Serial.println(tau_remote);
 
-      if (tau_local == tau_remote)
-      {
+      if (tau_local == tau_remote) {
         updateWeights(&tpm);
         match_counter++;
-      }
-      else
-      {
+      } else {
         match_counter = 0;
       }
 
-      if (match_counter > 50)
-      {
+      if (match_counter > 50) {
         Serial.println("Synchronization likely achieved!");
         printWeights(&tpm);
         printKey(&tpm);
+        deriveKey(&tpm);
         Serial.println("Time taken(ms)");
         Serial.println(millis() - start_time);
         sendSyncDone();
@@ -270,28 +248,37 @@ void sync()
 }
 void communicate()
 {
-  static unsigned long lastSend = 0;
+    if (Serial.available())
+    {
+        String msg = Serial.readStringUntil('\n');
+        msg.trim();
 
-  if (millis() - lastSend > 2000)
-  {
-    Serial.println("SECURE MODE ACTIVE");
+        int len = msg.length();
+        if(len == 0) return;
 
-    LoRa.beginPacket();
-    LoRa.write(MSG_DATA);
-    LoRa.print("Hello Secure");
-    LoRa.endPacket();
+        uint8_t encrypted[128];
 
-    lastSend = millis();
-  }
+        for(int i=0;i<len;i++)
+        {
+            encrypted[i] = ((uint8_t)msg[i]) ^ sharedKey[i % 32];
+        }
+
+        LoRa.beginPacket();
+        LoRa.write(MSG_DATA);
+        LoRa.write((uint8_t)len);
+        LoRa.write(encrypted, len);
+        LoRa.endPacket();
+
+        Serial.print("Encrypted Sent: ");
+        for(int i=0;i<len;i++)
+            Serial.printf("%02X ", encrypted[i]);
+        Serial.println();
+    }
 }
-void loop()
-{
-  if (currentMode == SYNC_MODE)
-  {
+void loop() {
+  if (currentMode == SYNC_MODE) {
     sync();
-  }
-  else if (currentMode == SECURE_MODE)
-  {
+  } else if (currentMode == SECURE_MODE) {
     communicate();
   }
 }
